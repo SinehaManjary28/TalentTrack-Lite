@@ -1,0 +1,13 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Excel temp files
+~$*.xlsx
+
+# Test / generated Excel files
+candidates.xlsx
+exported_candidates.xlsx
+
+# SQLite database
+*.db
