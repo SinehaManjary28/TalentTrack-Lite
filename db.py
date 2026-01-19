@@ -1,10 +1,18 @@
 import sqlite3
 import uuid
+import os
 from datetime import datetime
 
 
+# --------------------------------------------------
+# Fixed database path (IMPORTANT)
+# --------------------------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "talenttrack.db")
+
+
 def get_connection():
-    conn = sqlite3.connect("talenttrack.db")
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -160,5 +168,3 @@ def delete_candidate(candidate_id):
 if __name__ == "__main__":
     init_db()
     print("Database initialized successfully")
-
-
