@@ -31,17 +31,27 @@ def validate_email(email: str) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
-def validate_phone(phone: str) -> Tuple[bool, Optional[str]]:
+def validate_phone(phone: str):
     """
-    Validate phone number (numeric and length).
+    Validate Indian phone number in strict +91XXXXXXXXXX format.
     """
+    if not phone:
+        return False, "Phone number is required."
+
     phone = phone.strip()
 
-    if not phone.isdigit():
-        return False, "Phone number must contain only digits."
+    # Must start with +91
+    if not phone.startswith("+91"):
+        return False, "Phone number must start with +91."
 
-    if len(phone) != 10:
-        return False, "Phone number must be 10 digits long."
+    # Length must be exactly 13 characters (+91 + 10 digits)
+    if len(phone) != 13:
+        return False, "Phone number must be in +91XXXXXXXXXX format."
+
+    number_part = phone[3:]
+
+    if not number_part.isdigit():
+        return False, "Phone number must contain only digits after +91."
 
     return True, None
 
@@ -74,6 +84,7 @@ def validate_candidate(candidate: Dict) -> Tuple[bool, Optional[str]]:
     is_valid, error = validate_phone(candidate["phone"])
     if not is_valid:
         return False, error
+
 
     # Status
     is_valid, error = validate_status(candidate["status"])
