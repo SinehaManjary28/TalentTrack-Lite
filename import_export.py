@@ -8,6 +8,8 @@ from db import (
 )
 
 from validators import validate_candidate
+
+
 REQUIRED_COLUMNS = [
     "candidate_name",
     "skills",
@@ -18,66 +20,85 @@ REQUIRED_COLUMNS = [
     "status",
     "notes"
 ]
+
+# -----------------------------------------
+# Read Excel or CSV
+# -----------------------------------------
+def read_file(file):
+    file_name = file.name.lower()
+
+    if file_name.endswith(".csv"):
+        return pd.read_csv(file, dtype=str)
+    elif file_name.endswith((".xls", ".xlsx")):
+        return pd.read_excel(file)
+    else:
+        raise ValueError("Unsupported file format. Upload CSV or Excel.")
+
+
+# -----------------------------------------
+# Normalize dataframe
+# - Case insensitive columns
+# - Strip spaces
+# - Replace NaN with None
+# -----------------------------------------
 def normalize_dataframe(df):
-    # Make column names lowercase and strip spaces
     df.columns = [col.strip().lower() for col in df.columns]
-
-    # Replace NaN with None
     df = df.where(pd.notnull(df), None)
-
     return df
-def preview_excel(file_path):
-    df = pd.read_excel(file_path)
+
+
+# -----------------------------------------
+# Preview file before import
+# -----------------------------------------
+def preview_excel(file):
+    df = read_file(file)
     df = normalize_dataframe(df)
 
     preview_results = []
 
     for index, row in df.iterrows():
         candidate = {
-    k: (str(v).strip() if v is not None else None)
-    for k, v in row.to_dict().items()
-}
-
+            k: (str(v).strip() if v is not None else None)
+            for k, v in row.to_dict().items()
+        }
 
         is_valid, error = validate_candidate(candidate)
 
         preview_results.append({
-            "row_number": index + 2,  # Excel row number (header + 1)
+            "row_number": index + 2,  # header + 1
             "status": "valid" if is_valid else "invalid",
             "error": error
         })
 
     return preview_results
-def import_candidates_from_excel(file_path):
-    df = pd.read_excel(file_path)
+
+
+# -----------------------------------------
+# Import candidates from Excel / CSV
+# -----------------------------------------
+def import_candidates_from_excel(file):
+    df = read_file(file)
     df = normalize_dataframe(df)
 
-    inserted = 0
-    updated = 0
-    skipped = 0
+    inserted, updated, skipped = 0, 0, 0
 
     for _, row in df.iterrows():
         candidate = {
-    k: (str(v).strip() if v is not None else None)
-    for k, v in row.to_dict().items()
-}
+            k: (str(v).strip() if v is not None else None)
+            for k, v in row.to_dict().items()
+        }
 
-
-        # Validate candidate
-        is_valid, error = validate_candidate(candidate)
+        is_valid, _ = validate_candidate(candidate)
         if not is_valid:
             skipped += 1
             continue
 
-        # Duplicate check (email OR phone)
         existing = find_duplicate(candidate["email"], candidate["phone"])
-
         if existing:
             update_candidate(existing["candidate_id"], candidate)
             updated += 1
         else:
-            success = insert_candidate(candidate)
-            if success:
+            if insert_candidate(candidate):
                 inserted += 1
             else:
                 skipped += 1
@@ -87,6 +108,11 @@ def import_candidates_from_excel(file_path):
         "updated": updated,
         "skipped": skipped
     }
+
+
+# -----------------------------------------
+# Export candidates to Excel
+# -----------------------------------------
 def export_candidates_to_excel(output_file="exported_candidates.xlsx"):
     rows = get_all_candidates()
 
@@ -96,16 +122,3 @@ def export_candidates_to_excel(output_file="exported_candidates.xlsx"):
     df.to_excel(output_file, index=False)
 
     return output_file
-if __name__ == "__main__":
-    print("=== PREVIEW MODE ===")
-    preview = preview_excel("candidates.xlsx")
-    for row in preview:
-        print(row)
-
-    print("\n=== IMPORT MODE ===")
-    summary = import_candidates_from_excel("candidates.xlsx")
-    print(summary)
-
-    print("\n=== EXPORT MODE ===")
-    file = export_candidates_to_excel()
-    print(f"Exported to {file}")
