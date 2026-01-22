@@ -4,12 +4,24 @@ from typing import Tuple, Optional, Dict
 # Allowed status values (keep in sync with UI dropdown)
 ALLOWED_STATUS = {"New", "In Progress", "Selected", "Rejected"}
 
+# Country-wise phone rules (code : required digits)
+COUNTRY_PHONE_RULES = {
+    "+91": 10,  # India
+    "+1": 10,   # USA / Canada
+    "+44": 10,  # UK (simplified)
+    "+61": 9,   # Australia
+    "+81": 10,  # Japan
+    "+49": 11,  # Germany
+    "+971": 9,  # UAE
+    "+65": 8    # Singapore
+}
+
 
 def validate_required_fields(candidate: Dict) -> Tuple[bool, Optional[str]]:
     """
     Check required fields are present and not empty.
     """
-    required_fields = ["candidate_name", "email", "phone", "status"]
+    required_fields = ["candidate_name", "email", "phone", "status", "country_code"]
 
     for field in required_fields:
         if field not in candidate or not str(candidate[field]).strip():
@@ -31,29 +43,29 @@ def validate_email(email: str) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
-def validate_phone(phone: str):
+def validate_phone(phone: str, country_code: str):
     """
-    Validate Indian phone number in strict +91XXXXXXXXXX format.
+    Validate phone number based on selected country code
+    and normalize it to +<country_code><number>.
     """
     if not phone:
-        return False, "Phone number is required."
+        return False, "Phone number is required.", None
 
     phone = phone.strip()
 
-    # Must start with +91
-    if not phone.startswith("+91"):
-        return False, "Phone number must start with +91."
+    if not phone.isdigit():
+        return False, "Phone number must contain only digits.", None
 
-    # Length must be exactly 13 characters (+91 + 10 digits)
-    if len(phone) != 13:
-        return False, "Phone number must be in +91XXXXXXXXXX format."
+    if country_code not in COUNTRY_PHONE_RULES:
+        return False, "Unsupported country code.", None
 
-    number_part = phone[3:]
+    required_length = COUNTRY_PHONE_RULES[country_code]
 
-    if not number_part.isdigit():
-        return False, "Phone number must contain only digits after +91."
+    if len(phone) != required_length:
+        return False, f"Phone number must be {required_length} digits.", None
 
-    return True, None
+    normalized_phone = country_code + phone
+    return True, None, normalized_phone
 
 
 def validate_status(status: str) -> Tuple[bool, Optional[str]]:
@@ -80,11 +92,16 @@ def validate_candidate(candidate: Dict) -> Tuple[bool, Optional[str]]:
     if not is_valid:
         return False, error
 
-    # Phone
-    is_valid, error = validate_phone(candidate["phone"])
+    # Phone (with country code)
+    is_valid, error, normalized_phone = validate_phone(
+        candidate["phone"],
+        candidate["country_code"]
+    )
     if not is_valid:
         return False, error
 
+    # overwrite phone with normalized value
+    candidate["phone"] = normalized_phone
 
     # Status
     is_valid, error = validate_status(candidate["status"])
