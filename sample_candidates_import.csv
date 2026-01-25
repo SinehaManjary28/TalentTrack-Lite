@@ -1,0 +1,4 @@
+candidate_name,skills,phone,email,location,available_time,status,notes
+Ananya Sharma,"Python, SQL",9876543211,ananya.sharma@test.com,Bangalore,Immediate,New,Fresher
+Rahul Verma,"Data Analysis, Excel",9876543212,rahul.verma@test.com,Delhi,2 Weeks,In Progress,Has internship experience
+Priya Nair,"Machine Learning, Python",9876543213,priya.nair@test.com,Kochi,1 Month,Selected,Strong ML background

@@ -1,225 +1,277 @@
 import streamlit as st
 import pandas as pd
-import re
 
 from db import (
-    get_all_candidates,
+    init_db,
     insert_candidate,
+    find_duplicate,
     update_candidate,
-    find_duplicate
+    delete_candidate,
+    get_all_candidates
 )
 
-# ---------------- CONFIG ----------------
-st.set_page_config(page_title="TalentTrack Lite", layout="wide")
-
-STATUS_OPTIONS = ["Applied", "Interview", "Selected", "Rejected"]
-
-REQUIRED_COLUMNS = [
-    "name",
-    "skill",
-    "phone",
-    "email",
-    "location",
-    "available_time",
-    "status",
-    "notes"
-]
-
-# ---------------- HELPERS ----------------
-def is_valid_email(email):
-    return re.match(r"[^@]+@[^@]+\.[^@]+", email)
-
-def is_valid_phone(phone):
-    return phone.isdigit() and len(phone) == 10
-
-def load_data():
-    data = get_all_candidates()
-    return pd.DataFrame(data)
-
-# ---------------- SIDEBAR ----------------
-st.sidebar.title("TalentTrack Lite")
-page = st.sidebar.radio(
-    "Navigation",
-    [
-        "Dashboard",
-        "Add Candidate",
-        "View / Search",
-        "Update Candidate",
-        "Import from Excel",
-        "Export to Excel",
-    ]
+from validators import validate_candidate
+from import_export import (
+    preview_excel,
+    import_candidates_from_excel,
+    export_candidates_to_excel
 )
 
-# ---------------- DASHBOARD ----------------
-if page == "Dashboard":
+
+# -----------------------------
+# Helper functions
+# -----------------------------
+def clean_candidate_form(values):
+    """
+    Trim and clean the values.
+    """
+    return {
+        "candidate_name": str(values.get("candidate_name", "")).strip(),
+        "skills": str(values.get("skills", "")).strip() or None,
+        "phone": str(values.get("phone", "")).strip(),
+        "email": str(values.get("email", "")).strip().lower(),
+        "location": str(values.get("location", "")).strip() or None,
+        "available_time": str(values.get("available_time", "")).strip() or None,
+        "status": str(values.get("status", "")).strip(),
+        "notes": str(values.get("notes", "")).strip() or None
+    }
+
+
+def show_success(message):
+    st.success(message)
+
+
+def show_error(message):
+    st.error(message)
+
+
+def show_warning(message):
+    st.warning(message)
+
+
+# -----------------------------
+# Pages
+# -----------------------------
+def dashboard_page():
     st.title("Dashboard")
 
-    df = load_data()
+    rows = get_all_candidates()
+    df = pd.DataFrame([dict(row) for row in rows])
 
-    if df.empty:
-        st.info("No candidates found.")
+    total = len(df)
+    st.metric("Total Candidates", total)
+
+    if total > 0:
+        st.write(df.groupby("status").size().reset_index(name="count"))
     else:
-        total = len(df)
-        st.metric("Total Candidates", total)
+        st.info("No candidates yet.")
 
-        st.subheader("Status Breakdown")
-        status_counts = df["status"].value_counts()
 
-        cols = st.columns(len(status_counts))
-        for col, (status, count) in zip(cols, status_counts.items()):
-            col.metric(status, count)
+def add_candidate_page():
+    st.title(" Add Candidate")
 
-# ---------------- ADD CANDIDATE ----------------
-elif page == "Add Candidate":
-    st.title("Add Candidate")
-
-    with st.form("add_form"):
-        name = st.text_input("Name *")
-        skill = st.text_input("Skill *")
-        phone = st.text_input("Phone *")
-        email = st.text_input("Email *")
-        location = st.text_input("Location *")
+    with st.form("add_candidate_form"):
+        name = st.text_input("Candidate Name")
+        skills = st.text_input("Skills")
+        phone = st.text_input("Phone")
+        email = st.text_input("Email")
+        location = st.text_input("Location")
         available_time = st.text_input("Available Time")
-        status = st.selectbox("Status", STATUS_OPTIONS)
+        status = st.selectbox("Status", ["New", "In Progress", "Selected", "Rejected"])
         notes = st.text_area("Notes")
 
-        submitted = st.form_submit_button("Add Candidate")
+        submitted = st.form_submit_button("Save")
 
-    if submitted:
-        if not all([name, skill, phone, email, location]):
-            st.error("Please fill all required fields.")
-        elif not is_valid_email(email):
-            st.error("Invalid email format.")
-        elif not is_valid_phone(phone):
-            st.error("Phone must be 10 digits.")
-        else:
-            duplicate = find_duplicate(email, phone)
-
-            if duplicate:
-                st.warning("Duplicate candidate found.")
-                st.json(duplicate)
-            else:
-                insert_candidate({
-                    "name": name,
-                    "skill": skill,
-                    "phone": phone,
-                    "email": email,
-                    "location": location,
-                    "available_time": available_time,
-                    "status": status,
-                    "notes": notes,
-                })
-                st.success("Candidate added successfully.")
-
-# ---------------- VIEW / SEARCH ----------------
-elif page == "View / Search":
-    st.title("View / Search Candidates")
-
-    df = load_data()
-
-    if df.empty:
-        st.info("No data available.")
-    else:
-        col1, col2, col3, col4 = st.columns(4)
-
-        name_f = col1.text_input("Filter by Name")
-        skill_f = col2.text_input("Filter by Skill")
-        location_f = col3.text_input("Filter by Location")
-        status_f = col4.selectbox("Status", ["All"] + STATUS_OPTIONS)
-
-        if name_f:
-            df = df[df["name"].str.contains(name_f, case=False)]
-        if skill_f:
-            df = df[df["skill"].str.contains(skill_f, case=False)]
-        if location_f:
-            df = df[df["location"].str.contains(location_f, case=False)]
-        if status_f != "All":
-            df = df[df["status"] == status_f]
-
-        st.dataframe(df, use_container_width=True)
-
-# ---------------- UPDATE ----------------
-elif page == "Update Candidate":
-    st.title("Update Candidate")
-
-    df = load_data()
-
-    if df.empty:
-        st.info("No candidates available.")
-    else:
-        selected = st.selectbox(
-            "Select Candidate",
-            df["email"]
-        )
-
-        row = df[df["email"] == selected].iloc[0]
-
-        with st.form("update_form"):
-            name = st.text_input("Name", row["name"])
-            skill = st.text_input("Skill", row["skill"])
-            phone = st.text_input("Phone", row["phone"])
-            location = st.text_input("Location", row["location"])
-            available_time = st.text_input("Available Time", row["available_time"])
-            status = st.selectbox("Status", STATUS_OPTIONS, index=STATUS_OPTIONS.index(row["status"]))
-            notes = st.text_area("Notes", row["notes"])
-
-            updated = st.form_submit_button("Update")
-
-        if updated:
-            update_candidate(row["id"], {
-                "name": name,
-                "skill": skill,
+        if submitted:
+            candidate = clean_candidate_form({
+                "candidate_name": name,
+                "skills": skills,
                 "phone": phone,
+                "email": email,
                 "location": location,
                 "available_time": available_time,
                 "status": status,
-                "notes": notes,
+                "notes": notes
             })
-            st.success("Candidate updated successfully.")
 
-# ---------------- IMPORT ----------------
-elif page == "Import from Excel":
-    st.title("Import from Excel")
+            # Validate
+            is_valid, error = validate_candidate(candidate)
+            if not is_valid:
+                show_error(error)
+                return
 
-    file = st.file_uploader("Upload Excel File", type=["xlsx"])
+            # Duplicate check
+            existing = find_duplicate(candidate["email"], candidate["phone"])
+            if existing:
+                show_warning("Duplicate found! Email or Phone already exists.")
+                st.write(dict(existing))
+                if st.button("Update Existing"):
+                    update_candidate(existing["candidate_id"], candidate)
+                    show_success("Updated successfully!")
+                return
 
-    if file:
-        df = pd.read_excel(file)
-        st.subheader("Preview")
-        st.dataframe(df.head())
+            # Insert
+            success = insert_candidate(candidate)
+            if success:
+                show_success("Candidate added successfully!")
+            else:
+                show_error("Candidate already exists (email/phone duplicate).")
 
-        missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
 
-        if missing:
-            st.error(f"Missing columns: {missing}")
-        else:
-            if st.button("Import Data"):
-                inserted = skipped = 0
+def view_search_page():
+    st.title("🔎 View / Search Candidates")
 
-                for _, row in df.iterrows():
-                    dup = find_duplicate(row["email"], str(row["phone"]))
-
-                    if dup:
-                        skipped += 1
-                        continue
-
-                    insert_candidate(row.to_dict())
-                    inserted += 1
-
-                st.success(f"Import complete. Inserted: {inserted}, Skipped: {skipped}")
-
-# ---------------- EXPORT ----------------
-elif page == "Export to Excel":
-    st.title("Export Data")
-
-    df = load_data()
+    rows = get_all_candidates()
+    df = pd.DataFrame([dict(row) for row in rows])
 
     if df.empty:
-        st.info("No data to export.")
-    else:
-        st.download_button(
-            "Download Excel",
-            df.to_excel(index=False),
-            file_name="candidates.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        st.info("No candidates to show.")
+        return
+
+    name_filter = st.text_input("Search by Name")
+    skill_filter = st.text_input("Search by Skills")
+    location_filter = st.text_input("Search by Location")
+    status_filter = st.selectbox("Status", ["All", "New", "In Progress", "Selected", "Rejected"])
+
+    if name_filter:
+        df = df[df["candidate_name"].str.contains(name_filter, case=False)]
+    if skill_filter:
+        df = df[df["skills"].str.contains(skill_filter, case=False)]
+    if location_filter:
+        df = df[df["location"].str.contains(location_filter, case=False)]
+    if status_filter != "All":
+        df = df[df["status"] == status_filter]
+
+    st.dataframe(df)
+
+
+def update_candidate_page():
+    st.title("Update Candidate")
+
+    rows = get_all_candidates()
+    df = pd.DataFrame([dict(row) for row in rows])
+
+    if df.empty:
+        st.info("No candidates to update.")
+        return
+
+    candidate_id = st.selectbox("Select Candidate", df["candidate_id"].tolist())
+    candidate = df[df["candidate_id"] == candidate_id].iloc[0]
+
+    with st.form("update_form"):
+        name = st.text_input("Candidate Name", candidate["candidate_name"])
+        skills = st.text_input("Skills", candidate["skills"] or "")
+        phone = st.text_input("Phone", candidate["phone"])
+        email = st.text_input("Email", candidate["email"])
+        location = st.text_input("Location", candidate["location"] or "")
+        available_time = st.text_input("Available Time", candidate["available_time"] or "")
+        status = st.selectbox("Status", ["New", "In Progress", "Selected", "Rejected"], index=["New", "In Progress", "Selected", "Rejected"].index(candidate["status"]))
+        notes = st.text_area("Notes", candidate["notes"] or "")
+
+        submitted = st.form_submit_button("Update")
+
+        if submitted:
+            updated = clean_candidate_form({
+                "candidate_name": name,
+                "skills": skills,
+                "phone": phone,
+                "email": email,
+                "location": location,
+                "available_time": available_time,
+                "status": status,
+                "notes": notes
+            })
+
+            is_valid, error = validate_candidate(updated)
+            if not is_valid:
+                show_error(error)
+                return
+
+            update_candidate(candidate_id, updated)
+            show_success("Candidate updated successfully!")
+
+
+def delete_candidate_page():
+    st.title("Delete Candidate")
+
+    rows = get_all_candidates()
+    df = pd.DataFrame([dict(row) for row in rows])
+
+    if df.empty:
+        st.info("No candidates to delete.")
+        return
+
+    candidate_id = st.selectbox("Select Candidate", df["candidate_id"].tolist())
+    candidate = df[df["candidate_id"] == candidate_id].iloc[0]
+
+    st.write(candidate)
+
+    if st.button("Delete"):
+        delete_candidate(candidate_id)
+        show_success("Candidate deleted successfully!")
+
+
+def import_excel_page():
+    st.title("Import from Excel")
+
+    uploaded_file = st.file_uploader("Upload Excel file (.xlsx)", type=["xlsx"])
+    if uploaded_file:
+        st.info("Previewing Excel file...")
+
+        # Preview
+        preview = preview_excel(uploaded_file)
+        st.table(preview)
+
+        if st.button("Import Now"):
+            result = import_candidates_from_excel(uploaded_file)
+            show_success(
+                f"Import complete! Inserted: {result['inserted']} | Updated: {result['updated']} | Skipped: {result['skipped']}"
+            )
+
+
+def export_excel_page():
+    st.title("Export to Excel")
+
+    if st.button("Export Now"):
+        output_file = export_candidates_to_excel()
+        st.success(f"Exported successfully to {output_file}")
+
+
+# -----------------------------
+# Main
+# -----------------------------
+def main():
+    init_db()
+
+    st.sidebar.title("TalentTrack")
+    page = st.sidebar.selectbox(
+        "Navigation",
+        [
+            "Dashboard",
+            "Add Candidate",
+            "View/Search Candidates",
+            "Update Candidate",
+            "Delete Candidate",
+            "Import from Excel",
+            "Export to Excel"
+        ]
+    )
+
+    if page == "Dashboard":
+        dashboard_page()
+    elif page == "Add Candidate":
+        add_candidate_page()
+    elif page == "View/Search Candidates":
+        view_search_page()
+    elif page == "Update Candidate":
+        update_candidate_page()
+    elif page == "Delete Candidate":
+        delete_candidate_page()
+    elif page == "Import from Excel":
+        import_excel_page()
+    elif page == "Export to Excel":
+        export_excel_page()
+
+
+if __name__ == "__main__":
+    main()
