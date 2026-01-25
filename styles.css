@@ -1,0 +1,111 @@
+* ==============================
+   EY THEME – CLEAN & ENTERPRISE
+============================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+
+html, body, [class*="css"] {
+    font-family: "Inter", "Segoe UI", Arial, sans-serif;
+    background-color: #ffffff;
+    color: #000000;
+}
+
+/* ==============================
+   TOP HEADER (YELLOW)
+============================== */
+header {
+    background-color: #FFE600 !important;
+    border-bottom: 1px solid #e6d200;
+}
+
+header * {
+    color: #000000 !important;
+}
+
+/* ==============================
+   SIDEBAR (GREY)
+============================== */
+[data-testid="stSidebar"] {
+    background-color: #2E2E2E !important;
+}
+
+[data-testid="stSidebar"] * {
+    color: #ffffff !important;
+}
+
+/* ==============================
+   MAIN CONTENT (WHITE)
+============================== */
+.stApp {
+    background-color: #ffffff !important;
+}
+
+/* ==============================
+   HEADINGS
+============================== */
+h1, h2, h3 {
+    color: #000000 !important;
+    font-weight: 700;
+}
+
+/* ==============================
+   TEXT
+============================== */
+p, label, span, div {
+    color: #000000;
+}
+
+/* ==============================
+   CARDS / CONTAINERS
+============================== */
+.block-container {
+    padding-top: 2rem;
+}
+
+.stDataFrame {
+    background-color: #f5f5f5 !important;
+    border-radius: 10px;
+    padding: 1rem;
+}
+
+/* ==============================
+   INPUTS
+============================== */
+input, textarea, select {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #cfcfcf !important;
+    border-radius: 6px !important;
+}
+
+/* ==============================
+   BUTTONS (EY YELLOW)
+============================== */
+.stButton button {
+    background-color: #FFE600 !important;
+    color: #000000 !important;
+    border: none !important;
+    font-weight: 600 !important;
+    border-radius: 6px !important;
+    padding: 0.5rem 1.2rem;
+}
+
+.stButton button:hover {
+    background-color: #e6d200 !important;
+}
+
+/* ==============================
+   DROPDOWNS FIX (VISIBLE TEXT)
+============================== */
+div[role="combobox"] * {
+    color: #000000 !important;
+}
+
+/* ==============================
+   WARNING / INFO BOXES
+============================== */
+.stAlert {
+    background-color: #f5f5f5 !important;
+    color: #000000 !important;
+    border-left: 4px solid #FFE600;
+}

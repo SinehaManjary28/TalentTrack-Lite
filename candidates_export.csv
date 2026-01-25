@@ -1,0 +1,4 @@
+candidate_id,candidate_name,skills,phone,email,location,available_time,status,notes,created_at,updated_at
+42c63161-da39-42a8-b7f2-bb9062500153,vaisnav,,+919606582234,vais42@gmail.com,kolkata,Immediate,New,,2026-01-22 13:35:53,2026-01-22 13:37:01
+55f4ce83-815a-4d02-ad40-752ecf89c301,Rahul Verma,"Data Analysis, Excel",+919876543212,rahul.verma@test.com,Delhi,2 Weeks,In Progress,Has internship experience,2026-01-22 13:35:16,2026-01-22 13:35:16
+9aa837b9-c2d5-4d85-990a-fef0c8ed7235,Priya Nair,"Machine Learning, Python",+919876543213,priya.nair@test.com,Kochi,1 Month,Selected,Strong ML background,2026-01-22 13:35:16,2026-01-22 13:35:16
