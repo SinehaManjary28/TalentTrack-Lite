@@ -1,14 +1,17 @@
 import sqlite3
 import uuid
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 # --------------------------------------------------
-# Fixed database path (IMPORTANT)
+# Fixed database path
 # --------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "talenttrack.db")
+
+# Threshold for re-adding candidate (3 months)
+THRESHOLD_DAYS = 90
 
 
 def get_connection():
@@ -45,7 +48,52 @@ def init_db():
     conn.close()
 
 
+# --------------------------------------------------
+# Threshold-based check
+# --------------------------------------------------
+def can_readd_candidate(email, phone):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT candidate_id, created_at
+        FROM candidates
+        WHERE email = ? OR phone = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+    """, (email, phone))
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return True, None  # No previous record
+
+    last_created = datetime.strptime(
+        row["created_at"], "%Y-%m-%d %H:%M:%S"
+    )
+
+    if (datetime.now() - last_created).days >= THRESHOLD_DAYS:
+        return True, row["candidate_id"]
+
+    return False, None
+
+
 def insert_candidate(data):
+    # Check existing candidate
+    can_readd, candidate_id = can_readd_candidate(
+        data["email"], data["phone"]
+    )
+
+    if not can_readd:
+        return False
+
+    # If candidate exists and threshold passed → UPDATE
+    if candidate_id:
+        update_candidate(candidate_id, data)
+        return True
+
+    # Otherwise → INSERT new
     conn = get_connection()
     cursor = conn.cursor()
 
