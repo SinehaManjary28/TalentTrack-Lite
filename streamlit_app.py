@@ -1,3 +1,4 @@
+
 # talenttrack_app.py - Complete TalentTrack Application with CSV Support
 import os
 import streamlit as st
@@ -5,232 +6,346 @@ import pandas as pd
 import sqlite3
 import uuid
 import re
-from datetime import datetime
+from typing import Tuple, Optional, Dict
+from datetime import datetime, timedelta
 from io import StringIO
 
 # ============================================================================
-# DATABASE FUNCTIONS
+# VALIDATION FUNCTIONS (Embedded from your code)
 # ============================================================================
-class Database:
-    def __init__(self):
-        self.DB_PATH = "talenttrack.db"
-        self.init_db()
-    
-    def get_connection(self):
-        conn = sqlite3.connect(self.DB_PATH)
-        conn.row_factory = sqlite3.Row
-        return conn
-    
-    def get_timestamp(self):
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    def init_db(self):
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS candidates (
-                candidate_id TEXT PRIMARY KEY,
-                candidate_name TEXT NOT NULL,
-                skills TEXT,
-                phone TEXT UNIQUE NOT NULL,
-                email TEXT UNIQUE NOT NULL,
-                location TEXT,
-                available_time TEXT,
-                status TEXT,
-                notes TEXT,
-                created_at TEXT,
-                updated_at TEXT
-            )
-        """)
-        
-        conn.commit()
-        conn.close()
-    
-    def insert_candidate(self, data):
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        candidate_id = str(uuid.uuid4())
-        timestamp = self.get_timestamp()
-        
-        try:
-            cursor.execute("""
-                INSERT INTO candidates (
-                    candidate_id,
-                    candidate_name,
-                    skills,
-                    phone,
-                    email,
-                    location,
-                    available_time,
-                    status,
-                    notes,
-                    created_at,
-                    updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                candidate_id,
-                data["candidate_name"],
-                data.get("skills"),
-                data["phone"],
-                data["email"],
-                data.get("location"),
-                data.get("available_time"),
-                data.get("status"),
-                data.get("notes"),
-                timestamp,
-                timestamp
-            ))
-            
-            conn.commit()
-            return True
-        except sqlite3.IntegrityError:
-            return False
-        finally:
-            conn.close()
-    
-    def get_all_candidates(self):
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT * FROM candidates")
-        rows = cursor.fetchall()
-        
-        conn.close()
-        return rows
-    
-    def find_duplicate(self, email, phone):
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT * FROM candidates
-            WHERE email = ? OR phone = ?
-        """, (email, phone))
-        
-        row = cursor.fetchone()
-        conn.close()
-        return row
-    
-    def update_candidate(self, candidate_id, updated_data):
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        timestamp = self.get_timestamp()
-        
-        cursor.execute("""
-            UPDATE candidates
-            SET
-                candidate_name = ?,
-                skills = ?,
-                phone = ?,
-                email = ?,
-                location = ?,
-                available_time = ?,
-                status = ?,
-                notes = ?,
-                updated_at = ?
-            WHERE candidate_id = ?
-        """, (
-            updated_data["candidate_name"],
-            updated_data.get("skills"),
-            updated_data["phone"],
-            updated_data["email"],
-            updated_data.get("location"),
-            updated_data.get("available_time"),
-            updated_data.get("status"),
-            updated_data.get("notes"),
-            timestamp,
-            candidate_id
-        ))
-        
-        conn.commit()
-        conn.close()
-    
-    def delete_candidate(self, candidate_id):
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute(
-            "DELETE FROM candidates WHERE candidate_id = ?",
-            (candidate_id,)
-        )
-        
-        conn.commit()
-        conn.close()
+
+# Allowed status values (keep in sync with UI dropdown)
+ALLOWED_STATUS = {"New", "In Progress", "Selected", "Rejected"}
+
+# Country-wise phone rules (code : required digits)
+COUNTRY_PHONE_RULES = {
+    "+91": 10,
+    "+1": 10,
+    "+44": 10,
+    "+61": 9,
+    "+81": 10,
+    "+49": 11,
+    "+971": 9,
+    "+65": 8
+}
+
+
+def validate_required_fields(candidate: Dict) -> Tuple[bool, Optional[str]]:
+    required_fields = ["candidate_name", "email", "phone", "status", "country_code"]
+
+    for field in required_fields:
+        if field not in candidate or not str(candidate[field]).strip():
+            return False, f"{field.replace('_', ' ').title()} is required."
+
+    return True, None
+
+
+def validate_email(email: str) -> Tuple[bool, Optional[str]]:
+    email = email.strip().lower()
+    email_regex = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+
+    if not re.match(email_regex, email):
+        return False, "Invalid email format."
+
+    return True, None
+
+
+def validate_phone(phone: str, country_code: str) -> Tuple[bool, Optional[str], Optional[str]]:
+    if not phone:
+        return False, "Phone number is required.", None
+
+    phone = phone.strip()
+
+    if not phone.isdigit():
+        return False, "Phone number must contain only digits.", None
+
+    if country_code not in COUNTRY_PHONE_RULES:
+        return False, "Unsupported country code.", None
+
+    required_length = COUNTRY_PHONE_RULES[country_code]
+
+    if len(phone) != required_length:
+        return False, f"Phone number must be {required_length} digits.", None
+
+    normalized_phone = country_code + phone
+    return True, None, normalized_phone
+
+
+def validate_status(status: str) -> Tuple[bool, Optional[str]]:
+    if status not in ALLOWED_STATUS:
+        return False, f"Status must be one of {', '.join(ALLOWED_STATUS)}."
+
+    return True, None
+
+
+# 🔴 NEW: Name existence warning logic
+def name_exists_warning(existing_name_record) -> Optional[str]:
+    """
+    Returns warning message if candidate name already exists.
+    This is NOT a blocking validation.
+    """
+    if existing_name_record:
+        return "Candidate with this name already exists."
+    return None
+
+
+def validate_candidate(candidate: Dict) -> Tuple[bool, Optional[str]]:
+    # Required fields
+    is_valid, error = validate_required_fields(candidate)
+    if not is_valid:
+        return False, error
+
+    # Email
+    is_valid, error = validate_email(candidate["email"])
+    if not is_valid:
+        return False, error
+
+    # Phone
+    is_valid, error, normalized_phone = validate_phone(
+        candidate["phone"],
+        candidate["country_code"]
+    )
+    if not is_valid:
+        return False, error
+
+    candidate["phone"] = normalized_phone
+
+    # Status
+    is_valid, error = validate_status(candidate["status"])
+    if not is_valid:
+        return False, error
+
+    return True, None
+
+
+def check_duplicate_logic(existing_record) -> Tuple[bool, Optional[str]]:
+    if existing_record:
+        return True, "Duplicate candidate found (email or phone already exists)."
+    return False, None
 
 # ============================================================================
-# VALIDATION FUNCTIONS
+# DATABASE FUNCTIONS (Embedded from your code)
 # ============================================================================
-class Validator:
-    ALLOWED_STATUS = {"New", "In Progress", "Selected", "Rejected"}
-    
-    @staticmethod
-    def validate_required_fields(candidate):
-        required_fields = ["candidate_name", "email", "phone", "status"]
-        
-        for field in required_fields:
-            if field not in candidate or not str(candidate[field]).strip():
-                return False, f"{field.replace('_', ' ').title()} is required."
-        
-        return True, None
-    
-    @staticmethod
-    def validate_email(email):
-        email = email.strip().lower()
-        email_regex = r"^[\w\.-]+@[\w\.-]+\.\w+$"
-        
-        if not re.match(email_regex, email):
-            return False, "Invalid email format."
-        
-        return True, None
-    
-    @staticmethod
-    def validate_phone(phone):
-        if not phone:
-            return False, "Phone number is required."
-        
-        phone = phone.strip()
-        
-        if not phone.startswith("+91"):
-            return False, "Phone number must start with +91."
-        
-        if len(phone) != 13:
-            return False, "Phone number must be in +91XXXXXXXXXX format."
-        
-        number_part = phone[3:]
-        if not number_part.isdigit():
-            return False, "Phone number must contain only digits after +91."
-        
-        return True, None
-    
-    @staticmethod
-    def validate_status(status):
-        if status not in Validator.ALLOWED_STATUS:
-            return False, f"Status must be one of {', '.join(Validator.ALLOWED_STATUS)}."
-        
-        return True, None
-    
-    @staticmethod
-    def validate_candidate(candidate):
-        is_valid, error = Validator.validate_required_fields(candidate)
-        if not is_valid:
-            return False, error
-        
-        is_valid, error = Validator.validate_email(candidate["email"])
-        if not is_valid:
-            return False, error
-        
-        is_valid, error = Validator.validate_phone(candidate["phone"])
-        if not is_valid:
-            return False, error
-        
-        is_valid, error = Validator.validate_status(candidate["status"])
-        if not is_valid:
-            return False, error
-        
-        return True, None
+
+# Fixed database path
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "talenttrack.db")
+
+# Threshold for re-adding candidate (3 months)
+THRESHOLD_DAYS = 90
+
+
+def get_connection():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def get_timestamp():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def init_db():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS candidates (
+            candidate_id TEXT PRIMARY KEY,
+            candidate_name TEXT NOT NULL,
+            skills TEXT,
+            phone TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            location TEXT,
+            available_time TEXT,
+            status TEXT,
+            notes TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+# --------------------------------------------------
+# Threshold-based check
+# --------------------------------------------------
+def can_readd_candidate(email, phone):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT candidate_id, created_at
+        FROM candidates
+        WHERE email = ? OR phone = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+    """, (email, phone))
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return True, None  # No previous record
+
+    last_created = datetime.strptime(
+        row["created_at"], "%Y-%m-%d %H:%M:%S"
+    )
+
+    if (datetime.now() - last_created).days >= THRESHOLD_DAYS:
+        return True, row["candidate_id"]
+
+    return False, None
+
+
+def insert_candidate(data):
+    # Check existing candidate
+    can_readd, candidate_id = can_readd_candidate(
+        data["email"], data["phone"]
+    )
+
+    if not can_readd:
+        return False
+
+    # If candidate exists and threshold passed → UPDATE
+    if candidate_id:
+        update_candidate(candidate_id, data)
+        return True
+
+    # Otherwise → INSERT new
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    candidate_id = str(uuid.uuid4())
+    timestamp = get_timestamp()
+
+    try:
+        cursor.execute("""
+            INSERT INTO candidates (
+                candidate_id,
+                candidate_name,
+                skills,
+                phone,
+                email,
+                location,
+                available_time,
+                status,
+                notes,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            candidate_id,
+            data["candidate_name"],
+            data.get("skills"),
+            data["phone"],
+            data["email"],
+            data.get("location"),
+            data.get("available_time"),
+            data.get("status"),
+            data.get("notes"),
+            timestamp,
+            timestamp
+        ))
+
+        conn.commit()
+        return True
+
+    except sqlite3.IntegrityError:
+        return False
+
+    finally:
+        conn.close()
+
+
+def get_all_candidates():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM candidates")
+    rows = cursor.fetchall()
+
+    conn.close()
+    return rows
+
+
+def find_duplicate(email, phone):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM candidates
+        WHERE email = ? OR phone = ?
+    """, (email, phone))
+
+    row = cursor.fetchone()
+    conn.close()
+    return row
+
+
+def find_by_name(name):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM candidates
+        WHERE candidate_name = ?
+    """, (name,))
+
+    row = cursor.fetchone()
+    conn.close()
+    return row
+
+
+def update_candidate(candidate_id, updated_data):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    timestamp = get_timestamp()
+
+    cursor.execute("""
+        UPDATE candidates
+        SET
+            candidate_name = ?,
+            skills = ?,
+            phone = ?,
+            email = ?,
+            location = ?,
+            available_time = ?,
+            status = ?,
+            notes = ?,
+            updated_at = ?
+        WHERE candidate_id = ?
+    """, (
+        updated_data["candidate_name"],
+        updated_data.get("skills"),
+        updated_data["phone"],
+        updated_data["email"],
+        updated_data.get("location"),
+        updated_data.get("available_time"),
+        updated_data.get("status"),
+        updated_data.get("notes"),
+        timestamp,
+        candidate_id
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def delete_candidate(candidate_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "DELETE FROM candidates WHERE candidate_id = ?",
+        (candidate_id,)
+    )
+
+    conn.commit()
+    conn.close()
 
 # ============================================================================
 # IMPORT/EXPORT FUNCTIONS
@@ -238,7 +353,7 @@ class Validator:
 class ImportExport:
     @staticmethod
     def normalize_dataframe(df):
-        df.columns = [str(col).strip().lower() for col in df.columns]
+        df.columns = [str(col).strip().lower().replace(" ", "_") for col in df.columns]
         df = df.where(pd.notnull(df), None)
         return df
     
@@ -268,7 +383,6 @@ class ImportExport:
             df = ImportExport.normalize_dataframe(df)
             
             preview_results = []
-            validator = Validator()
             
             for index, row in df.iterrows():
                 candidate = {
@@ -276,7 +390,11 @@ class ImportExport:
                     for k, v in row.to_dict().items()
                 }
                 
-                is_valid, error = validator.validate_candidate(candidate)
+                # Add default country_code if not present
+                if "country_code" not in candidate:
+                    candidate["country_code"] = "+91"  # Default
+                
+                is_valid, error = validate_candidate(candidate)
                 
                 preview_results.append({
                     "row_number": index + 2,
@@ -289,7 +407,7 @@ class ImportExport:
             raise Exception(f"Preview failed: {str(e)}")
     
     @staticmethod
-    def import_candidates_from_file(file, file_type, db):
+    def import_candidates_from_file(file, file_type):
         try:
             df = ImportExport.read_file(file, file_type)
             df = ImportExport.normalize_dataframe(df)
@@ -298,7 +416,6 @@ class ImportExport:
             updated = 0
             skipped = 0
             errors = []
-            validator = Validator()
             
             for index, row in df.iterrows():
                 try:
@@ -307,19 +424,31 @@ class ImportExport:
                         for k, v in row.to_dict().items()
                     }
                     
-                    is_valid, error = validator.validate_candidate(candidate)
+                    # Add default country_code if not present
+                    if "country_code" not in candidate:
+                        candidate["country_code"] = "+91"  # Default
+                    
+                    is_valid, error = validate_candidate(candidate)
                     if not is_valid:
                         skipped += 1
                         errors.append(f"Row {index + 2}: {error}")
                         continue
                     
-                    existing = db.find_duplicate(candidate["email"], candidate["phone"])
+                    # Check if candidate can be readded/updated
+                    can_readd, candidate_id = can_readd_candidate(
+                        candidate["email"], candidate["phone"]
+                    )
                     
-                    if existing:
-                        db.update_candidate(existing["candidate_id"], candidate)
+                    if not can_readd:
+                        skipped += 1
+                        errors.append(f"Row {index + 2}: Cannot add candidate - exists within {THRESHOLD_DAYS} days")
+                        continue
+                    
+                    if candidate_id:
+                        update_candidate(candidate_id, candidate)
                         updated += 1
                     else:
-                        success = db.insert_candidate(candidate)
+                        success = insert_candidate(candidate)
                         if success:
                             inserted += 1
                         else:
@@ -340,9 +469,9 @@ class ImportExport:
             raise Exception(f"Import failed: {str(e)}")
     
     @staticmethod
-    def export_candidates_to_excel(db, output_file="exported_candidates.xlsx"):
+    def export_candidates_to_excel(output_file="exported_candidates.xlsx"):
         try:
-            rows = db.get_all_candidates()
+            rows = get_all_candidates()
             
             if not rows:
                 raise Exception("No candidates found to export")
@@ -358,9 +487,9 @@ class ImportExport:
             raise Exception(f"Export to Excel failed: {str(e)}")
     
     @staticmethod
-    def export_candidates_to_csv(db, output_file="exported_candidates.csv"):
+    def export_candidates_to_csv(output_file="exported_candidates.csv"):
         try:
-            rows = db.get_all_candidates()
+            rows = get_all_candidates()
             
             if not rows:
                 raise Exception("No candidates found to export")
@@ -380,12 +509,13 @@ class ImportExport:
         sample_data = {
             "candidate_name": ["John Doe", "Jane Smith"],
             "skills": ["Python, SQL", "Java, Spring Boot"],
-            "phone": ["+911234567890", "+919876543210"],
+            "phone": ["1234567890", "1234567890"],  # Without country code
             "email": ["john@example.com", "jane@example.com"],
-            "location": ["Bangalore", "Mumbai"],
+            "location": ["Bangalore", "New York"],
             "available_time": ["9AM-6PM", "10AM-7PM"],
             "status": ["New", "In Progress"],
-            "notes": ["Sample note 1", "Sample note 2"]
+            "notes": ["Sample note 1", "Sample note 2"],
+            "country_code": ["+91", "+1"]  # Country code in separate column
         }
         
         df = pd.DataFrame(sample_data)
@@ -399,17 +529,18 @@ class ImportExport:
 # ============================================================================
 class TalentTrackApp:
     def __init__(self):
-        self.db = Database()
-        self.validator = Validator()
         self.import_export = ImportExport()
-        self.STATUSES = ["New", "In Progress", "Selected", "Rejected"]
+        self.STATUSES = list(ALLOWED_STATUS)
+        self.COUNTRY_CODES = list(COUNTRY_PHONE_RULES.keys())
         
         # Initialize session state
         if "initialized" not in st.session_state:
             st.session_state.initialized = True
-            if os.path.exists("talenttrack.db"):
-                os.remove("talenttrack.db")
-            self.db.init_db()
+            # Remove existing database to start fresh
+            if os.path.exists(DB_PATH):
+                os.remove(DB_PATH)
+            # Initialize fresh database
+            init_db()
     
     def clean_candidate_form(self, values):
         return {
@@ -420,7 +551,8 @@ class TalentTrackApp:
             "location": values.get("location", "").strip() or None,
             "available_time": values.get("available_time", "").strip() or None,
             "status": values.get("status", "").strip(),
-            "notes": values.get("notes", "").strip() or None
+            "notes": values.get("notes", "").strip() or None,
+            "country_code": values.get("country_code", "+91")
         }
     
     def normalize_skills_column(self, df):
@@ -437,16 +569,15 @@ class TalentTrackApp:
         return df
     
     def dashboard_page(self):
-        st.title("📊 Dashboard")
-        
-        rows = self.db.get_all_candidates()
+        st.title("Dashboard")
+
+        rows = get_all_candidates()
         if not rows:
             st.info("No candidates found.")
             return
-        
+
         df = pd.DataFrame([dict(r) for r in rows])
-        
-        # Metrics
+
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Total Candidates", len(df))
@@ -456,31 +587,27 @@ class TalentTrackApp:
             st.metric("In Progress", len(df[df["status"] == "In Progress"]))
         with col4:
             st.metric("Selected", len(df[df["status"] == "Selected"]))
-        
-        # Status Summary
-        if "status" in df.columns:
-            summary = df["status"].value_counts().reset_index()
-            summary.columns = ["Status", "Count"]
-            st.subheader("Status Distribution")
-            st.table(summary)
-        
-        # Recent Candidates
-        st.subheader("Recent Candidates")
-        if "created_at" in df.columns:
-            recent_df = df.sort_values("created_at", ascending=False).head(10)
-        else:
-            recent_df = df.head(10)
-        st.dataframe(recent_df[["candidate_name", "email", "phone", "status", "location"]])
+
+        # Create status summary for bar chart
+        summary = df["status"].value_counts().reset_index()
+        summary.columns = ["Status", "Count"]
+
+        # Display bar chart
+        st.subheader("Status Distribution")
+        st.bar_chart(summary.set_index("Status"), height=500)
     
     def add_candidate_page(self):
-        st.title("➕ Add Candidate")
+        st.title("Add Candidate")
         
         with st.form("add_candidate_form"):
             col1, col2 = st.columns(2)
             
             with col1:
                 candidate_name = st.text_input("Candidate Name*")
-                phone = st.text_input("Phone* (format: +91XXXXXXXXXX)")
+                country_code = st.selectbox("Country Code*", self.COUNTRY_CODES, index=0)
+                phone = st.text_input("Phone* (digits only)", 
+                                    placeholder="e.g., 9876543210 for +91",
+                                    help="Enter digits only without country code")
                 email = st.text_input("Email*")
                 location = st.text_input("Location")
             
@@ -491,6 +618,17 @@ class TalentTrackApp:
                 notes = st.text_area("Notes")
             
             st.markdown("*Required fields")
+            
+            # Add info about supported country codes
+            with st.expander("📱 Supported Phone Formats"):
+                st.write("**Country Code Rules:**")
+                for code, digits in COUNTRY_PHONE_RULES.items():
+                    st.write(f"- {code}: {digits} digits")
+                st.write("\n**Examples:**")
+                st.write("- India (+91): Enter 10 digits (e.g., 9876543210)")
+                st.write("- US (+1): Enter 10 digits (e.g., 1234567890)")
+                st.write("- UK (+44): Enter 10 digits (e.g., 7123456789)")
+            
             submitted = st.form_submit_button("Save Candidate")
         
         if submitted:
@@ -503,41 +641,46 @@ class TalentTrackApp:
                 "available_time": available_time,
                 "status": status,
                 "notes": notes,
+                "country_code": country_code
             })
             
-            valid, error = self.validator.validate_candidate(candidate)
-            if not valid:
+            # Validate candidate
+            is_valid, error = validate_candidate(candidate)
+            
+            if not is_valid:
                 st.error(f"❌ {error}")
                 return
             
-            existing = self.db.find_duplicate(candidate["email"], candidate["phone"])
-            if existing:
-                st.warning("⚠️ Duplicate candidate found!")
-                with st.expander("View Existing Candidate"):
-                    st.json(dict(existing))
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("Update Existing Candidate"):
-                        self.db.update_candidate(existing["candidate_id"], candidate)
-                        st.success("✅ Candidate updated successfully!")
-                        st.rerun()
-                with col2:
-                    if st.button("Cancel"):
-                        st.rerun()
+            # Check name existence (non-blocking warning)
+            existing_name = find_by_name(candidate["candidate_name"])
+            if existing_name:
+                st.warning(name_exists_warning(existing_name))
+            
+            # Check threshold-based logic
+            can_readd, candidate_id = can_readd_candidate(candidate["email"], candidate["phone"])
+            
+            if not can_readd:
+                st.error(f"❌ Cannot add candidate - candidate already exists and was added within last {THRESHOLD_DAYS} days")
                 return
             
-            success = self.db.insert_candidate(candidate)
-            if success:
-                st.success("✅ Candidate added successfully!")
-                st.rerun()
+            if candidate_id:
+                # Update existing candidate
+                update_candidate(candidate_id, candidate)
+                st.success(f"✅ Candidate updated successfully! (Existing candidate found, {THRESHOLD_DAYS}+ days passed)")
             else:
-                st.error("❌ Failed to add candidate. Possible duplicate email or phone.")
+                # Insert new candidate
+                success = insert_candidate(candidate)
+                if success:
+                    st.success("✅ Candidate added successfully!")
+                else:
+                    st.error("❌ Failed to add candidate. Possible duplicate email or phone.")
+            
+            st.rerun()
     
     def view_search_page(self):
-        st.title("🔍 View / Search Candidates")
+        st.title("View / Search Candidates")
         
-        rows = self.db.get_all_candidates()
+        rows = get_all_candidates()
         if not rows:
             st.info("No candidates found.")
             return
@@ -591,7 +734,7 @@ class TalentTrackApp:
             # Add a download button for filtered results
             csv = display_df.to_csv(index=False)
             st.download_button(
-                label="📥 Download Filtered Results (CSV)",
+                label="Download Filtered Results (CSV)",
                 data=csv,
                 file_name="filtered_candidates.csv",
                 mime="text/csv"
@@ -602,9 +745,9 @@ class TalentTrackApp:
             st.info("No candidates match your search criteria.")
     
     def update_candidate_page(self):
-        st.title("✏️ Update Candidate")
+        st.title("Update Candidate")
         
-        rows = self.db.get_all_candidates()
+        rows = get_all_candidates()
         if not rows:
             st.info("No candidates found.")
             return
@@ -627,13 +770,26 @@ class TalentTrackApp:
         
         candidate = df[df["candidate_id"] == candidate_id].iloc[0]
         
+        # Extract country code and phone digits from existing phone
+        current_phone = candidate["phone"]
+        country_code = "+91"  # default
+        phone_digits = current_phone
+        
+        for code in self.COUNTRY_CODES:
+            if current_phone.startswith(code):
+                country_code = code
+                phone_digits = current_phone[len(code):]
+                break
+        
         with st.form("update_form"):
             col1, col2 = st.columns(2)
             
             with col1:
                 candidate_name = st.text_input("Candidate Name*", candidate["candidate_name"])
                 skills = st.text_input("Skills", candidate["skills"] or "")
-                phone = st.text_input("Phone*", candidate["phone"])
+                country_code_input = st.selectbox("Country Code*", self.COUNTRY_CODES, 
+                                                index=self.COUNTRY_CODES.index(country_code) if country_code in self.COUNTRY_CODES else 0)
+                phone = st.text_input("Phone* (digits only)", phone_digits)
                 email = st.text_input("Email*", candidate["email"])
             
             with col2:
@@ -661,21 +817,30 @@ class TalentTrackApp:
                     "available_time": available_time,
                     "status": status,
                     "notes": notes,
+                    "country_code": country_code_input
                 })
                 
-                valid, error = self.validator.validate_candidate(updated)
-                if not valid:
+                # Validate candidate
+                is_valid, error = validate_candidate(updated)
+                
+                if not is_valid:
                     st.error(f"❌ {error}")
                     return
                 
-                self.db.update_candidate(candidate_id, updated)
+                # Check name existence (non-blocking warning)
+                if candidate_name != candidate["candidate_name"]:
+                    existing_name = find_by_name(candidate_name)
+                    if existing_name:
+                        st.warning(name_exists_warning(existing_name))
+                
+                update_candidate(candidate_id, updated)
                 st.success("✅ Candidate updated successfully!")
                 st.rerun()
     
     def delete_candidate_page(self):
-        st.title("🗑️ Delete Candidate")
+        st.title("Delete Candidate")
         
-        rows = self.db.get_all_candidates()
+        rows = get_all_candidates()
         if not rows:
             st.info("No candidates found.")
             return
@@ -715,18 +880,18 @@ class TalentTrackApp:
         col1, col2, col3 = st.columns(3)
         with col2:
             if st.button("❌ Confirm Delete", type="primary"):
-                self.db.delete_candidate(candidate_id)
+                delete_candidate(candidate_id)
                 st.success("✅ Candidate deleted successfully!")
                 st.rerun()
     
     def import_page(self):
-        st.title("📤 Import Candidates")
+        st.title("Import Candidates")
         
         # File type selection
         file_type = st.radio("Select File Type", ["Excel (.xlsx)", "CSV (.csv)"])
         
         # Template download
-        with st.expander("📋 Download Template"):
+        with st.expander("Download Template"):
             if st.button("Download CSV Template"):
                 csv_sample = self.import_export.get_csv_sample()
                 st.download_button(
@@ -736,13 +901,26 @@ class TalentTrackApp:
                     mime="text/csv"
                 )
             
-            st.info("""
+            st.info(f"""
             **Required Columns:**
             - candidate_name
-            - phone (format: +91XXXXXXXXXX)
+            - phone (digits only, without country code)
             - email
-            - status (New, In Progress, Selected, Rejected)
+            - status ({', '.join(ALLOWED_STATUS)})
+            - country_code (e.g., +91, +1, +44, etc.)
             
+            **Phone Format Rules:**
+            - Enter digits only without country code
+            - Country code should be in separate 'country_code' column
+            - Threshold: Can re-add same candidate after {THRESHOLD_DAYS} days
+            
+            **Supported Country Codes:**
+            """)
+            
+            for code, digits in COUNTRY_PHONE_RULES.items():
+                st.write(f"- {code}: {digits} digits")
+            
+            st.info("""
             **Optional Columns:**
             - skills
             - location
@@ -761,7 +939,7 @@ class TalentTrackApp:
         if uploaded_file:
             try:
                 # Preview
-                st.subheader("📄 File Preview")
+                st.subheader("File Preview")
                 preview = self.import_export.preview_file(uploaded_file, file_type_code)
                 preview_df = pd.DataFrame(preview)
                 
@@ -785,11 +963,11 @@ class TalentTrackApp:
                         st.dataframe(errors_df[["row_number", "error"]])
                 
                 # Import button
-                if st.button("🚀 Import Candidates", type="primary"):
+                if st.button("Import Candidates", type="primary"):
                     with st.spinner("Importing candidates..."):
                         # Reset file pointer
                         uploaded_file.seek(0)
-                        result = self.import_export.import_candidates_from_file(uploaded_file, file_type_code, self.db)
+                        result = self.import_export.import_candidates_from_file(uploaded_file, file_type_code)
                     
                     st.success(f"""
                     **Import Summary:**
@@ -808,9 +986,9 @@ class TalentTrackApp:
                 st.error(f"❌ Error: {str(e)}")
     
     def export_page(self):
-        st.title("📥 Export Candidates")
+        st.title("Export Candidates")
         
-        rows = self.db.get_all_candidates()
+        rows = get_all_candidates()
         if not rows:
             st.info("No candidates found to export.")
             return
@@ -824,12 +1002,12 @@ class TalentTrackApp:
         with col1:
             st.subheader("Export to Excel")
             excel_filename = st.text_input("Excel filename", "candidates_export.xlsx")
-            if st.button("📊 Export to Excel"):
+            if st.button("Export to Excel"):
                 try:
-                    output_file = self.import_export.export_candidates_to_excel(self.db, excel_filename)
+                    output_file = self.import_export.export_candidates_to_excel(excel_filename)
                     with open(output_file, "rb") as f:
                         st.download_button(
-                            label="⬇️ Download Excel File",
+                            label="Download Excel File",
                             data=f,
                             file_name=excel_filename,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -841,12 +1019,12 @@ class TalentTrackApp:
         with col2:
             st.subheader("Export to CSV")
             csv_filename = st.text_input("CSV filename", "candidates_export.csv")
-            if st.button("📄 Export to CSV"):
+            if st.button("Export to CSV"):
                 try:
-                    output_file = self.import_export.export_candidates_to_csv(self.db, csv_filename)
+                    output_file = self.import_export.export_candidates_to_csv(csv_filename)
                     with open(output_file, "rb") as f:
                         st.download_button(
-                            label="⬇️ Download CSV File",
+                            label="Download CSV File",
                             data=f,
                             file_name=csv_filename,
                             mime="text/csv"
@@ -861,7 +1039,7 @@ class TalentTrackApp:
         csv_data = df.to_csv(index=False)
         
         st.download_button(
-            label="⬇️ Download All Data as CSV",
+            label="Download All Data as CSV",
             data=csv_data,
             file_name="all_candidates.csv",
             mime="text/csv"
@@ -869,50 +1047,61 @@ class TalentTrackApp:
     
     def run(self):
         # Sidebar Navigation
-        st.sidebar.title("🎯 TalentTrack")
+        st.sidebar.title("TalentTrack")
         st.sidebar.markdown("---")
         
         page = st.sidebar.selectbox(
             "Navigation",
             [
-                "📊 Dashboard",
-                "➕ Add Candidate",
-                "🔍 View/Search Candidates",
-                "✏️ Update Candidate",
-                "🗑️ Delete Candidate",
-                "📤 Import Candidates",
-                "📥 Export Candidates"
+                "Dashboard",
+                "Add Candidate",
+                "View/Search Candidates",
+                "Update Candidate",
+                "Delete Candidate",
+                "Import Candidates",
+                "Export Candidates"
             ]
         )
         
+        # Reset button in sidebar
+        st.sidebar.markdown("---")
+        if st.sidebar.button("🗑️ Reset Database (Demo Only)", type="secondary"):
+            if os.path.exists(DB_PATH):
+                os.remove(DB_PATH)
+            init_db()
+            st.sidebar.success("✅ Database reset successfully!")
+            st.rerun()
+        
         # Page routing
-        if page == "📊 Dashboard":
+        if page == "Dashboard":
             self.dashboard_page()
-        elif page == "➕ Add Candidate":
+        elif page == "Add Candidate":
             self.add_candidate_page()
-        elif page == "🔍 View/Search Candidates":
+        elif page == "View/Search Candidates":
             self.view_search_page()
-        elif page == "✏️ Update Candidate":
+        elif page == "Update Candidate":
             self.update_candidate_page()
-        elif page == "🗑️ Delete Candidate":
+        elif page == "Delete Candidate":
             self.delete_candidate_page()
-        elif page == "📤 Import Candidates":
+        elif page == "Import Candidates":
             self.import_page()
-        elif page == "📥 Export Candidates":
+        elif page == "Export Candidates":
             self.export_page()
         
         # Footer
         st.sidebar.markdown("---")
-        st.sidebar.info("""
-        **TalentTrack v1.0**
+        st.sidebar.info(f"""
+        **TalentTrack v2.0**
         
         Features:
         - ✅ Add, Update, Delete Candidates
         - ✅ Search & Filter
         - ✅ Import Excel/CSV
         - ✅ Export Excel/CSV
-        - ✅ Phone/Email Validation
+        - ✅ Enhanced Phone Validation (8 countries)
         - ✅ Duplicate Detection
+        - ✅ Name Existence Warning
+        - ✅ {THRESHOLD_DAYS}-day Re-add Threshold
         """)
 
 # ============================================================================
@@ -922,7 +1111,7 @@ if __name__ == "__main__":
     # Page configuration
     st.set_page_config(
         page_title="TalentTrack - Candidate Management",
-        page_icon="👥",
+        page_icon="👨‍💼",
         layout="wide",
         initial_sidebar_state="expanded"
     )
