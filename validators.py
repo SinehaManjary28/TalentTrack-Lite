@@ -6,21 +6,18 @@ ALLOWED_STATUS = {"New", "In Progress", "Selected", "Rejected"}
 
 # Country-wise phone rules (code : required digits)
 COUNTRY_PHONE_RULES = {
-    "+91": 10,  # India
-    "+1": 10,   # USA / Canada
-    "+44": 10,  # UK (simplified)
-    "+61": 9,   # Australia
-    "+81": 10,  # Japan
-    "+49": 11,  # Germany
-    "+971": 9,  # UAE
-    "+65": 8    # Singapore
+    "+91": 10,
+    "+1": 10,
+    "+44": 10,
+    "+61": 9,
+    "+81": 10,
+    "+49": 11,
+    "+971": 9,
+    "+65": 8
 }
 
 
 def validate_required_fields(candidate: Dict) -> Tuple[bool, Optional[str]]:
-    """
-    Check required fields are present and not empty.
-    """
     required_fields = ["candidate_name", "email", "phone", "status", "country_code"]
 
     for field in required_fields:
@@ -31,9 +28,6 @@ def validate_required_fields(candidate: Dict) -> Tuple[bool, Optional[str]]:
 
 
 def validate_email(email: str) -> Tuple[bool, Optional[str]]:
-    """
-    Validate email format.
-    """
     email = email.strip().lower()
     email_regex = r"^[\w\.-]+@[\w\.-]+\.\w+$"
 
@@ -44,10 +38,6 @@ def validate_email(email: str) -> Tuple[bool, Optional[str]]:
 
 
 def validate_phone(phone: str, country_code: str):
-    """
-    Validate phone number based on selected country code
-    and normalize it to +<country_code><number>.
-    """
     if not phone:
         return False, "Phone number is required.", None
 
@@ -69,19 +59,24 @@ def validate_phone(phone: str, country_code: str):
 
 
 def validate_status(status: str) -> Tuple[bool, Optional[str]]:
-    """
-    Validate candidate status.
-    """
     if status not in ALLOWED_STATUS:
         return False, f"Status must be one of {', '.join(ALLOWED_STATUS)}."
 
     return True, None
 
 
+# 🔴 NEW: Name existence warning logic
+def name_exists_warning(existing_name_record) -> Optional[str]:
+    """
+    Returns warning message if candidate name already exists.
+    This is NOT a blocking validation.
+    """
+    if existing_name_record:
+        return "Candidate with this name already exists."
+    return None
+
+
 def validate_candidate(candidate: Dict) -> Tuple[bool, Optional[str]]:
-    """
-    Master validation function to be called before DB insert/update.
-    """
     # Required fields
     is_valid, error = validate_required_fields(candidate)
     if not is_valid:
@@ -92,7 +87,7 @@ def validate_candidate(candidate: Dict) -> Tuple[bool, Optional[str]]:
     if not is_valid:
         return False, error
 
-    # Phone (with country code)
+    # Phone
     is_valid, error, normalized_phone = validate_phone(
         candidate["phone"],
         candidate["country_code"]
@@ -100,7 +95,6 @@ def validate_candidate(candidate: Dict) -> Tuple[bool, Optional[str]]:
     if not is_valid:
         return False, error
 
-    # overwrite phone with normalized value
     candidate["phone"] = normalized_phone
 
     # Status
@@ -112,10 +106,6 @@ def validate_candidate(candidate: Dict) -> Tuple[bool, Optional[str]]:
 
 
 def check_duplicate_logic(existing_record) -> Tuple[bool, Optional[str]]:
-    """
-    Decide duplicate outcome based on DB response.
-    existing_record is the output of find_duplicate() from db.py
-    """
     if existing_record:
         return True, "Duplicate candidate found (email or phone already exists)."
 
