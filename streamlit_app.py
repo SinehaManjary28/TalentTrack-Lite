@@ -398,7 +398,7 @@ class ImportExport:
                 
                 preview_results.append({
                     "row_number": index + 2,
-                    "status": "✅ Valid" if is_valid else "❌ Invalid",
+                    "status": " Valid" if is_valid else "❌ Invalid",
                     "error": error if error else "No errors"
                 })
             
@@ -834,7 +834,7 @@ class TalentTrackApp:
                         st.warning(name_exists_warning(existing_name))
                 
                 update_candidate(candidate_id, updated)
-                st.success("✅ Candidate updated successfully!")
+                st.success(" Candidate updated successfully!")
                 st.rerun()
     
     def delete_candidate_page(self):
@@ -881,7 +881,7 @@ class TalentTrackApp:
         with col2:
             if st.button("❌ Confirm Delete", type="primary"):
                 delete_candidate(candidate_id)
-                st.success("✅ Candidate deleted successfully!")
+                st.success(" Candidate deleted successfully!")
                 st.rerun()
     
     def import_page(self):
@@ -949,7 +949,7 @@ class TalentTrackApp:
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.metric("✅ Valid Rows", valid_count)
+                    st.metric(" Valid Rows", valid_count)
                 with col2:
                     st.metric("❌ Invalid Rows", invalid_count)
                 
@@ -971,9 +971,9 @@ class TalentTrackApp:
                     
                     st.success(f"""
                     **Import Summary:**
-                    - ✅ Inserted: {result['inserted']}
-                    - 🔄 Updated: {result['updated']}
-                    - ⏭️ Skipped: {result['skipped']}
+                    -  Inserted: {result['inserted']}
+                    -  Updated: {result['updated']}
+                    -  Skipped: {result['skipped']}
                     """)
                     
                     if result['total_errors'] > 0:
@@ -994,7 +994,7 @@ class TalentTrackApp:
             return
         
         total_candidates = len(rows)
-        st.success(f"✅ Found {total_candidates} candidates ready for export")
+        st.success(f" Found {total_candidates} candidates ready for export")
         
         # Export options
         col1, col2 = st.columns(2)
@@ -1012,7 +1012,7 @@ class TalentTrackApp:
                             file_name=excel_filename,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
-                    st.success(f"✅ Exported {total_candidates} candidates to {output_file}")
+                    st.success(f" Exported {total_candidates} candidates to {output_file}")
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
         
@@ -1029,7 +1029,7 @@ class TalentTrackApp:
                             file_name=csv_filename,
                             mime="text/csv"
                         )
-                    st.success(f"✅ Exported {total_candidates} candidates to {output_file}")
+                    st.success(f" Exported {total_candidates} candidates to {output_file}")
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
         
@@ -1069,7 +1069,7 @@ class TalentTrackApp:
             if os.path.exists(DB_PATH):
                 os.remove(DB_PATH)
             init_db()
-            st.sidebar.success("✅ Database reset successfully!")
+            st.sidebar.success(" Database reset successfully!")
             st.rerun()
         
         # Page routing
@@ -1094,14 +1094,14 @@ class TalentTrackApp:
         **TalentTrack v2.0**
         
         Features:
-        - ✅ Add, Update, Delete Candidates
-        - ✅ Search & Filter
-        - ✅ Import Excel/CSV
-        - ✅ Export Excel/CSV
-        - ✅ Enhanced Phone Validation (8 countries)
-        - ✅ Duplicate Detection
-        - ✅ Name Existence Warning
-        - ✅ {THRESHOLD_DAYS}-day Re-add Threshold
+        -  Add, Update, Delete Candidates
+        -  Search & Filter
+        -  Import Excel/CSV
+        -  Export Excel/CSV
+        -  Enhanced Phone Validation (8 countries)
+        -  Duplicate Detection
+        -  Name Existence Warning
+        -  {THRESHOLD_DAYS}-day Re-add Threshold
         """)
 
 # ============================================================================
@@ -1111,7 +1111,6 @@ if __name__ == "__main__":
     # Page configuration
     st.set_page_config(
         page_title="TalentTrack - Candidate Management",
-        page_icon="👨‍💼",
         layout="wide",
         initial_sidebar_state="expanded"
     )
